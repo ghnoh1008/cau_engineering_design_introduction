@@ -1,1 +1,1 @@
-# cau_engineering_design_introduction
+# 실시간 오디오 분석 및 객체 탐지에 따른 해충 살상 모델 개발
