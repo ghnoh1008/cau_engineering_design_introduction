@@ -5,71 +5,70 @@ import numpy as np
 import soundfile as sf
 
 # 설정
-input_directory = r"C:\Users\kikio\Desktop\전자전기공학\2학년\공설입\project\mp3_data"  # mp3 파일들이 있는 디렉토리
-temp_wav_dir = r"C:\Users\kikio\Desktop\전자전기공학\2학년\공설입\project\split_wavs"  # 자른 .wav 파일 저장 폴더
-feature_dir = r"C:\Users\kikio\Desktop\전자전기공학\2학년\공설입\project\features"  # CNN 입력용 numpy 파일 저장 폴더
+input_directory = r"C:\Users\kikio\Desktop\전자전기공학\2학년\공설입\project\mp3_data"
+temp_wav_dir = r"C:\Users\kikio\Desktop\전자전기공학\2학년\공설입\project\split_wavs"
+feature_dir = r"C:\Users\kikio\Desktop\전자전기공학\2학년\공설입\project\features"
 
-# 폴더가 없다면 생성
 os.makedirs(temp_wav_dir, exist_ok=True)
 os.makedirs(feature_dir, exist_ok=True)
 
-# 키워드 목록 (파일명에서 확인할 키워드)
 keywords = ['mosquito', 'flies']
 
-# 1. 디렉토리 내의 모든 mp3 파일을 처리
-for mp3_file in os.listdir(input_directory):
-    if mp3_file.endswith(".mp3"):
-        mp3_path = os.path.join(input_directory, mp3_file)
-        print(f"처리 중: {mp3_path}")
+# 지원하는 오디오 확장자
+supported_formats = ['.mp3', '.wav']
 
-        # mp3 불러오기
-        audio = AudioSegment.from_mp3(mp3_path)
-        duration_sec = int(audio.duration_seconds)
-        print(f"총 길이: {duration_sec}초")
+# 파일 처리
+for audio_file in os.listdir(input_directory):
+    file_ext = os.path.splitext(audio_file)[1].lower()
+    if file_ext not in supported_formats:
+        continue  # mp3나 wav가 아니면 스킵
 
-        # 키워드를 기반으로 카테고리 찾기
-        category = None
-        for keyword in keywords:
-            if keyword in mp3_file.lower():
-                category = keyword
-                break  # 첫 번째 매칭된 키워드로 카테고리 결정
+    audio_path = os.path.join(input_directory, audio_file)
+    print(f"처리 중: {audio_path}")
 
-        if not category:
-            category = "others"  # 키워드에 매칭되지 않으면 "others"로 처리
+    # 확장자에 따라 불러오기
+    if file_ext == '.mp3':
+        audio = AudioSegment.from_mp3(audio_path)
+    elif file_ext == '.wav':
+        audio = AudioSegment.from_wav(audio_path)
 
-        # 키워드별로 카테고리 폴더 생성
-        category_wav_dir = os.path.join(temp_wav_dir, category)
-        category_feature_dir = os.path.join(feature_dir, category)
+    duration_sec = int(audio.duration_seconds)
+    print(f"총 길이: {duration_sec}초")
 
-        # 해당 카테고리 폴더가 없으면 생성
-        os.makedirs(category_wav_dir, exist_ok=True)
-        os.makedirs(category_feature_dir, exist_ok=True)
+    # 키워드 기반 카테고리 결정
+    category = next((k for k in keywords if k in audio_file.lower()), "others")
 
-        # 2. 1초 단위로 자르기 + wav 저장
-        for i in range(duration_sec):
-            chunk = audio[i*1000:(i+1)*1000]
-            chunk_path = os.path.join(category_wav_dir, f"{mp3_file[:-4]}_chunk_{i}.wav")
-            chunk.export(chunk_path, format="wav")
+    # 디렉토리 설정
+    category_wav_dir = os.path.join(temp_wav_dir, category)
+    category_feature_dir = os.path.join(feature_dir, category)
 
-        print(f"1초 단위로 자르기 완료: {mp3_file}")
+    os.makedirs(category_wav_dir, exist_ok=True)
+    os.makedirs(category_feature_dir, exist_ok=True)
 
-        # 3. 각 wav 파일 -> mel spectrogram 으로 변환
-        sr_desired = 22050  # 표준 샘플레이트
-        n_mels = 128        # mel feature 수
+    # 1초 단위로 잘라서 저장
+    base_name = os.path.splitext(audio_file)[0]
+    for i in range(duration_sec):
+        chunk = audio[i*1000:(i+1)*1000]
+        chunk_path = os.path.join(category_wav_dir, f"{base_name}_chunk_{i}.wav")
+        chunk.export(chunk_path, format="wav")
 
-        for fname in os.listdir(category_wav_dir):
-            if fname.endswith(".wav") and fname.startswith(mp3_file[:-4]):
-                fpath = os.path.join(category_wav_dir, fname)
-                y, sr = librosa.load(fpath, sr=sr_desired)
-                mel = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels)
-                mel_db = librosa.power_to_db(mel, ref=np.max)
+    print(f"1초 단위로 자르기 완료: {audio_file}")
 
-                # shape: (128, time) -> CNN에 맞게 (1, 128, time) 또는 (128, time, 1)
-                mel_db = mel_db[np.newaxis, ...]  # 채널 추가
+    # Mel spectrogram 변환
+    sr_desired = 22050
+    n_mels = 128
 
-                save_path = os.path.join(category_feature_dir, fname.replace(".wav", ".npy"))
-                np.save(save_path, mel_db)
+    for fname in os.listdir(category_wav_dir):
+        if fname.endswith(".wav") and fname.startswith(base_name):
+            fpath = os.path.join(category_wav_dir, fname)
+            y, sr = librosa.load(fpath, sr=sr_desired)
+            mel = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels)
+            mel_db = librosa.power_to_db(mel, ref=np.max)
+            mel_db = mel_db[np.newaxis, ...]  # 채널 추가 (1, 128, time)
 
-        print(f"mel spectrogram 추출 및 저장 완료: {mp3_file}")
+            save_path = os.path.join(category_feature_dir, fname.replace(".wav", ".npy"))
+            np.save(save_path, mel_db)
 
-print("모든 mp3 파일 처리 완료.")
+    print(f"mel spectrogram 추출 및 저장 완료: {audio_file}")
+
+print("모든 오디오 파일 처리 완료.")
